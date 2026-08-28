@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+@keyframes spin-reel {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.reel-spinning {
+  animation: spin-reel 3s linear infinite;
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 4px rgba(245,166,35,0.6)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 10px rgba(245,166,35,0.9)); }
+}
+
+.led-on {
+  animation: glow-pulse 2.4s ease-in-out infinite;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .reel-spinning, .led-on {
+    animation: none !important;
+  }
+}
