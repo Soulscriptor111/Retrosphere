@@ -3,20 +3,15 @@ import { onMounted, ref, computed } from "vue";
 import RadioCabinet from "./components/RadioCabinet.vue";
 import FileUpload from "./components/FileUpload.vue";
 import LyricsPaper from "./components/LyricsPaper.vue";
-import LyricsInput from "./components/LyricsInput.vue";
-import MoodPrompt from "./components/MoodPrompt.vue";
+import VibePicker from "./components/VibePicker.vue";
 import { useAudioEngine } from "./composables/useAudioEngine";
 import { useLibrary } from "./composables/useLibrary";
 import { extractMetadata } from "./composables/useMetadata";
-import {
-  timeOfDayMood,
-  songsMatchingMood,
-  moodFromAudio,
-} from "./composables/useMood";
+import { songsMatchingMood, moodFromAudio } from "./composables/useMood";
 import { usePreferences } from "./composables/usePreferences";
 import { fetchLyricsFromLrcLib } from "./composables/useLrcLib";
 import { analyzeAudio } from "./composables/useAudioAnalysis";
-import { queryForMood } from "./composables/useMoodQueries";
+import { buildVibeQuery } from "./composables/useMoodQueries";
 import { searchJamendoTracks } from "./composables/useJamendo";
 
 const engine = useAudioEngine();
@@ -27,7 +22,6 @@ const currentIndex = ref(-1);
 const currentSong = computed(() =>
   currentIndex.value >= 0 ? songs.value[currentIndex.value] : null,
 );
-const suggestedMood = computed(() => timeOfDayMood());
 const isFetchingMood = ref(false);
 
 onMounted(loadSongs);
@@ -99,13 +93,8 @@ async function deleteSong(id, index) {
   }
 }
 
-async function saveLyrics(patch) {
-  if (!currentSong.value) return;
-  await updateSong(currentSong.value.id, patch);
-}
-
-// The system fetches -- the user only ever names a mood.
-async function pickMood(mood) {
+// The system fetches -- the user only ever names mood/genre/country.
+async function pickVibe({ mood, genre, country }) {
   const localMatches = songsMatchingMood(songs.value, mood);
   if (localMatches.length) {
     const index = songs.value.indexOf(localMatches[0]);
@@ -113,14 +102,23 @@ async function pickMood(mood) {
     recordMood(mood, localMatches[0].id);
     return;
   }
-  await fetchMoodSongFromJamendo(mood);
+  await fetchVibeSongFromJamendo({ mood, genre, country });
 }
 
-async function fetchMoodSongFromJamendo(mood) {
+async function fetchVibeSongFromJamendo({ mood, genre, country }) {
   isFetchingMood.value = true;
   try {
-    const results = await searchJamendoTracks(queryForMood(mood), 5);
+    const tags = buildVibeQuery({ mood, genre });
+
+    let results = await searchJamendoTracks(tags, {
+      limit: 5,
+      search: country,
+    });
+    if (!results.length && country) {
+      results = await searchJamendoTracks(tags, { limit: 5 });
+    }
     if (!results.length) return;
+
     const track = results[Math.floor(Math.random() * results.length)];
 
     const audioRes = await fetch(track.audioUrl);
@@ -135,7 +133,7 @@ async function fetchMoodSongFromJamendo(mood) {
       artist: track.artist,
       album: track.album || "Unknown Album",
       year: null,
-      genre: "Unknown",
+      genre: genre || "Unknown",
       duration: track.duration,
       file,
       coverArt: track.coverArt,
@@ -146,6 +144,7 @@ async function fetchMoodSongFromJamendo(mood) {
       playCount: 0,
       uploadDate: new Date().toISOString(),
       source: "jamendo",
+      country: country || null,
     };
     await addSong(song);
 
@@ -158,7 +157,7 @@ async function fetchMoodSongFromJamendo(mood) {
       updateSong(song.id, { moodTags: merged, moodAnalyzed: analyzed, bpm });
     });
   } catch (e) {
-    console.warn("Mood fetch from Jamendo failed:", e.message);
+    console.warn("Vibe fetch from Jamendo failed:", e.message);
   } finally {
     isFetchingMood.value = false;
   }
@@ -167,92 +166,106 @@ async function fetchMoodSongFromJamendo(mood) {
 
 <template>
   <div
-    class="min-h-screen bg-wood-dark flex flex-col items-center px-4 py-8 gap-6"
+    class="min-h-screen bg-wood-dark flex flex-col lg:h-screen lg:grid lg:grid-cols-2 lg:overflow-hidden"
   >
-    <RadioCabinet
-      :is-playing="engine.isPlaying.value"
-      :levels="engine.levels.value"
-      :current-song="currentSong"
-      :volume="engine.volume.value"
-      :current-time="engine.currentTime.value"
-      :duration="engine.duration.value"
-      @toggle="togglePlay"
-      @next="next"
-      @prev="prev"
-      @seek="engine.seek"
-      @volume="engine.setVolume"
-    />
-
-    <div class="w-full max-w-md">
-      <MoodPrompt :suggested-mood="suggestedMood" @pick="pickMood" />
-      <p
-        v-if="isFetchingMood"
-        class="font-mono text-[10px] text-cream/40 text-center mt-2"
-      >
-        Finding something for that mood…
-      </p>
-    </div>
-
-    <div v-if="currentSong" class="w-full max-w-md space-y-3">
-      <LyricsPaper
-        :lrc-lines="currentSong.lrcLines || []"
-        :plain-lyrics="currentSong.lyrics || ''"
+    <!-- Player pane: radio + lyrics, sized to fit the screen without extra scroll -->
+    <div
+      class="flex flex-col items-center justify-center gap-3 px-4 py-6 min-h-screen lg:min-h-0 lg:h-screen lg:overflow-y-auto"
+    >
+      <RadioCabinet
+        :is-playing="engine.isPlaying.value"
+        :levels="engine.levels.value"
+        :current-song="currentSong"
+        :volume="engine.volume.value"
         :current-time="engine.currentTime.value"
+        :duration="engine.duration.value"
+        @toggle="togglePlay"
+        @next="next"
+        @prev="prev"
+        @seek="engine.seek"
+        @volume="engine.setVolume"
       />
-      <LyricsInput @save="saveLyrics" />
 
-      <p class="font-mono text-[10px] text-cream/40 px-1">
-        <span v-if="!currentSong.moodAnalyzed && !currentSong.moodTags?.length">
-          Analyzing mood…
-        </span>
-        <span v-else-if="currentSong.moodTags?.length">
-          Mood: {{ currentSong.moodTags.join(", ") }}
-          <span v-if="currentSong.source === 'jamendo'" class="text-brass/60"
-            >· via Jamendo</span
+      <div v-if="currentSong" class="w-full max-w-md space-y-2">
+        <LyricsPaper
+          :lrc-lines="currentSong.lrcLines || []"
+          :plain-lyrics="currentSong.lyrics || ''"
+          :current-time="engine.currentTime.value"
+          class="max-h-40 lg:max-h-64"
+        />
+        <p class="font-mono text-[10px] text-cream/40 px-1">
+          <span
+            v-if="!currentSong.moodAnalyzed && !currentSong.moodTags?.length"
           >
-        </span>
+            Analyzing mood…
+          </span>
+          <span v-else-if="currentSong.moodTags?.length">
+            Mood: {{ currentSong.moodTags.join(", ") }}
+            <span v-if="currentSong.source === 'jamendo'" class="text-brass/60"
+              >· via Jamendo</span
+            >
+          </span>
+        </p>
+      </div>
+    </div>
+
+    <!-- Control pane: vibe picker, upload, library -->
+    <div
+      class="flex flex-col items-center gap-6 px-4 py-8 lg:h-screen lg:overflow-y-auto lg:border-l lg:border-brass/10"
+    >
+      <div class="w-full max-w-md">
+        <VibePicker @search="pickVibe" />
+        <p
+          v-if="isFetchingMood"
+          class="font-mono text-[10px] text-cream/40 text-center mt-2"
+        >
+          Finding something for that vibe…
+        </p>
+      </div>
+
+      <div class="w-full max-w-md">
+        <FileUpload @files="handleFiles" />
+      </div>
+
+      <div v-if="songs.length" class="w-full max-w-md">
+        <h2 class="font-display text-cream/80 text-sm mb-2 px-1">Your tapes</h2>
+        <ul class="space-y-1">
+          <li
+            v-for="(song, i) in songs"
+            :key="song.id"
+            @click="playAt(i)"
+            class="flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ease-organic"
+            :class="
+              i === currentIndex
+                ? 'bg-brass/20 border border-brass/50'
+                : 'bg-wood/40 hover:bg-wood/60'
+            "
+          >
+            <div class="min-w-0">
+              <p class="font-body text-cream text-sm truncate">
+                {{ song.title }}
+              </p>
+              <p class="font-mono text-[10px] text-cream/50 truncate">
+                {{ song.artist }}
+              </p>
+            </div>
+            <button
+              @click.stop="deleteSong(song.id, i)"
+              aria-label="Remove tape"
+              class="text-cream/40 hover:text-amber text-xs font-mono px-2"
+            >
+              ✕
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <p
+        v-else
+        class="font-mono text-[11px] text-cream/30 text-center max-w-md"
+      >
+        No tapes yet -- pick a vibe above, or upload a song.
       </p>
     </div>
-
-    <div class="w-full max-w-md">
-      <FileUpload @files="handleFiles" />
-    </div>
-
-    <div v-if="songs.length" class="w-full max-w-md">
-      <h2 class="font-display text-cream/80 text-sm mb-2 px-1">Your tapes</h2>
-      <ul class="space-y-1">
-        <li
-          v-for="(song, i) in songs"
-          :key="song.id"
-          @click="playAt(i)"
-          class="flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ease-organic"
-          :class="
-            i === currentIndex
-              ? 'bg-brass/20 border border-brass/50'
-              : 'bg-wood/40 hover:bg-wood/60'
-          "
-        >
-          <div class="min-w-0">
-            <p class="font-body text-cream text-sm truncate">
-              {{ song.title }}
-            </p>
-            <p class="font-mono text-[10px] text-cream/50 truncate">
-              {{ song.artist }}
-            </p>
-          </div>
-          <button
-            @click.stop="deleteSong(song.id, i)"
-            aria-label="Remove tape"
-            class="text-cream/40 hover:text-amber text-xs font-mono px-2"
-          >
-            ✕
-          </button>
-        </li>
-      </ul>
-    </div>
-
-    <p v-else class="font-mono text-[11px] text-cream/30 text-center max-w-md">
-      No tapes yet. Upload a song above to hear the reels spin.
-    </p>
   </div>
 </template>

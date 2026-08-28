@@ -4,23 +4,32 @@
 const JAMENDO_CLIENT_ID = "680103e5";
 const BASE = "https://api.jamendo.com/v3.0";
 
-export async function searchJamendoTracks(spaceSeparatedTags, limit = 5) {
+// `search` (e.g. a country/region name) is optional free text layered
+// on top of the mood/genre fuzzytags. Jamendo's catalog is thin for
+// many regions, so callers should retry without `search` if this
+// comes back empty rather than treating it as a dead end.
+export async function searchJamendoTracks(
+  spaceSeparatedTags,
+  { limit = 5, search = "" } = {},
+) {
   try {
     const params = new URLSearchParams({
       client_id: JAMENDO_CLIENT_ID,
       format: "json",
       limit: String(limit),
-      fuzzytags: spaceSeparatedTags, // lenient OR-ish match, not strict AND like 'tags'
-      vocalinstrumental: "vocal", // excludes instrumental-only beat tracks
-      order: "popularity_total", // surfaces more listened-to tracks first
+      fuzzytags: spaceSeparatedTags,
+      vocalinstrumental: "vocal",
+      order: "popularity_total",
       audioformat: "mp32",
       include: "musicinfo",
     });
+    if (search) params.set("search", search);
+
     const res = await fetch(`${BASE}/tracks/?${params.toString()}`);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.results || [])
-      .filter((t) => t.name && t.artist_name) // drop entries with no real title/artist
+      .filter((t) => t.name && t.artist_name)
       .map((t) => ({
         id: t.id,
         title: t.name,

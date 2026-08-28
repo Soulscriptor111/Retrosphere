@@ -1,7 +1,6 @@
 // Jamendo's tag params expect space-separated tags (their docs show
 // fuzzytags=groove+rock, where + is just URL-encoded space) -- NOT
-// comma-separated. Comma-joined tags were being read as one garbled
-// tag, which is why almost nothing matched before.
+// comma-separated.
 export const MOOD_QUERIES = {
   happy: "happy pop",
   sad: "sad melancholic",
@@ -15,4 +14,13 @@ export const MOOD_QUERIES = {
 
 export function queryForMood(mood) {
   return MOOD_QUERIES[mood] || mood;
+}
+
+// Combines mood + optional genre into one fuzzytags string for Jamendo.
+// Country is handled separately (as a free-text 'search' param) since
+// it isn't part of Jamendo's tag vocabulary.
+export function buildVibeQuery({ mood, genre }) {
+  const parts = [queryForMood(mood)];
+  if (genre) parts.push(genre);
+  return parts.join(" ");
 }
