@@ -1,36 +1,47 @@
 <script setup>
-import { computed, watch, nextTick } from "vue";
-import { activeLrcIndex } from "../composables/useLrcParser";
+import { computed, watch, nextTick, ref } from 'vue'
+import { activeLrcIndex } from '../composables/useLrcParser'
 
 const props = defineProps({
   lrcLines: { type: Array, default: () => [] },
-  plainLyrics: { type: String, default: "" },
+  plainLyrics: { type: String, default: '' },
   currentTime: { type: Number, default: 0 },
-});
+  hasSong: { type: Boolean, default: true },
+})
 
-const activeIndex = computed(() =>
-  activeLrcIndex(props.lrcLines, props.currentTime),
-);
-const hasSynced = computed(() => props.lrcLines.length > 0);
+const activeIndex = computed(() => activeLrcIndex(props.lrcLines, props.currentTime))
+const hasSynced = computed(() => props.lrcLines.length > 0)
 
-const lineRefs = [];
+const containerRef = ref(null)
+let lineRefs = []
 function setLineRef(el, i) {
-  if (el) lineRefs[i] = el;
+  if (el) lineRefs[i] = el
 }
 
-watch(activeIndex, async (i) => {
-  if (i < 0) return;
-  await nextTick();
-  const el = lineRefs[i];
-  if (el) {
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
+watch(
+  () => props.lrcLines,
+  () => {
+    lineRefs = []
   }
-});
+)
+
+watch(activeIndex, async (i) => {
+  if (i < 0) return
+  await nextTick()
+  const container = containerRef.value
+  const line = lineRefs[i]
+  if (!container || !line) return
+
+  const rawTarget = line.offsetTop - container.clientHeight / 2 + line.clientHeight / 2
+  const maxScroll = container.scrollHeight - container.clientHeight
+  container.scrollTop = Math.max(0, Math.min(rawTarget, maxScroll))
+})
 </script>
 
 <template>
   <div
-    class="rounded-lg p-5 shadow-cabinet overflow-y-auto max-h-64 font-mono text-[13px] leading-relaxed scroll-smooth"
+    ref="containerRef"
+    class="relative rounded-lg p-5 shadow-cabinet overflow-y-auto overscroll-contain font-mono text-[13px] leading-relaxed scroll-smooth"
     style="background: #e8d5b8; color: #3d2c1f"
   >
     <template v-if="hasSynced">
@@ -45,7 +56,7 @@ watch(activeIndex, async (i) => {
             : 'text-wood-dark/40'
         "
       >
-        {{ line.text || "♪" }}
+        {{ line.text || '♪' }}
       </p>
     </template>
 
@@ -53,10 +64,15 @@ watch(activeIndex, async (i) => {
       <p class="whitespace-pre-line text-wood-dark/80">{{ plainLyrics }}</p>
     </template>
 
+    <template v-else-if="!hasSong">
+      <p class="text-wood-dark/40 italic text-center py-6 px-2">
+        Pick a vibe to start the radio -- lyrics will appear here once something's playing.
+      </p>
+    </template>
+
     <template v-else>
       <p class="text-wood-dark/40 italic text-center py-6 px-2">
-        No lyrics found automatically for this one — paste them below, or upload
-        an .lrc file if you have one.
+        No lyrics found automatically for this one.
       </p>
     </template>
   </div>
