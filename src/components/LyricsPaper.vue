@@ -1,41 +1,58 @@
 <script setup>
-import { computed, watch, nextTick, ref } from 'vue'
-import { activeLrcIndex } from '../composables/useLrcParser'
+import { computed, watch, nextTick, ref } from "vue";
+import { activeLrcIndex } from "../composables/useLrcParser";
 
 const props = defineProps({
   lrcLines: { type: Array, default: () => [] },
-  plainLyrics: { type: String, default: '' },
+  plainLyrics: { type: String, default: "" },
   currentTime: { type: Number, default: 0 },
   hasSong: { type: Boolean, default: true },
-})
+});
 
-const activeIndex = computed(() => activeLrcIndex(props.lrcLines, props.currentTime))
-const hasSynced = computed(() => props.lrcLines.length > 0)
+const activeIndex = computed(() =>
+  activeLrcIndex(props.lrcLines, props.currentTime),
+);
+const hasSynced = computed(() => props.lrcLines.length > 0);
 
-const containerRef = ref(null)
-let lineRefs = []
+// How long until the NEXT line takes over -- derived straight from the
+// song's own LRC timestamps, no audio analysis needed. Fast-moving
+// sections (rap, quick ad-libs) get a snappier transition; slow,
+// spaced-out lines (ballads) get a gentler one.
+const transitionMs = computed(() => {
+  const idx = activeIndex.value;
+  if (idx < 0 || idx >= props.lrcLines.length - 1) return 300;
+  const gapSeconds = props.lrcLines[idx + 1].time - props.lrcLines[idx].time;
+  const gapMs = gapSeconds * 1000;
+  return Math.min(650, Math.max(150, gapMs * 0.35));
+});
+
+// A slightly bigger, punchier pop for fast lines; a softer lift for slow ones.
+const activeScale = computed(() => (transitionMs.value < 280 ? 1.06 : 1.03));
+
+const containerRef = ref(null);
+let lineRefs = [];
 function setLineRef(el, i) {
-  if (el) lineRefs[i] = el
+  if (el) lineRefs[i] = el;
 }
 
 watch(
   () => props.lrcLines,
   () => {
-    lineRefs = []
-  }
-)
+    lineRefs = [];
+  },
+);
 
 watch(activeIndex, async (i) => {
-  if (i < 0) return
-  await nextTick()
-  const container = containerRef.value
-  const line = lineRefs[i]
-  if (!container || !line) return
-
-  const rawTarget = line.offsetTop - container.clientHeight / 2 + line.clientHeight / 2
-  const maxScroll = container.scrollHeight - container.clientHeight
-  container.scrollTop = Math.max(0, Math.min(rawTarget, maxScroll))
-})
+  if (i < 0) return;
+  await nextTick();
+  const container = containerRef.value;
+  const line = lineRefs[i];
+  if (!container || !line) return;
+  const rawTarget =
+    line.offsetTop - container.clientHeight / 2 + line.clientHeight / 2;
+  const maxScroll = container.scrollHeight - container.clientHeight;
+  container.scrollTop = Math.max(0, Math.min(rawTarget, maxScroll));
+});
 </script>
 
 <template>
@@ -49,14 +66,20 @@ watch(activeIndex, async (i) => {
         v-for="(line, i) in lrcLines"
         :key="i"
         :ref="(el) => setLineRef(el, i)"
-        class="transition-all duration-300 ease-organic py-0.5"
+        class="ease-organic py-0.5"
+        :style="{
+          transitionProperty: 'color, transform',
+          transitionDuration: transitionMs + 'ms',
+          transform: i === activeIndex ? `scale(${activeScale})` : 'scale(1)',
+          transformOrigin: 'left center',
+        }"
         :class="
           i === activeIndex
-            ? 'text-wood-dark font-semibold scale-[1.03] origin-left'
+            ? 'text-wood-dark font-semibold'
             : 'text-wood-dark/40'
         "
       >
-        {{ line.text || '♪' }}
+        {{ line.text || "♪" }}
       </p>
     </template>
 
@@ -66,7 +89,8 @@ watch(activeIndex, async (i) => {
 
     <template v-else-if="!hasSong">
       <p class="text-wood-dark/40 italic text-center py-6 px-2">
-        Pick a vibe to start the radio -- lyrics will appear here once something's playing.
+        Pick a vibe to start the radio -- lyrics will appear here once
+        something's playing.
       </p>
     </template>
 
